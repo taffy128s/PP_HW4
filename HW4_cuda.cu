@@ -67,35 +67,36 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
     }*/
     int x = threadIdx.x / B;
     int y = threadIdx.x % B;
-    __shared__ int target[16][16];
-    __shared__ int a[16][16];
-    __shared__ int b[16][16];
+    __shared__ int target[16][33];
+    __shared__ int a[16][33];
+    __shared__ int b[16][33];
     target[x][y] = *((int*)((char*)device_ptr + i * pitch) + j);
     a[x][y] = *((int*)((char*)device_ptr + i * pitch) + Round * B + y);
     b[x][y] = *((int*)((char*)device_ptr + (Round * B + x) * pitch) + j);
     __syncthreads();
     if (i >= n || j >= n) return;
     
+    int rb = Round * B;
     if (stat == 1) {
-        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+        for (int k = 0; k < 16 && rb + k < n; k++) {
             if (target[x][k] + target[k][y] < target[x][y])
                 target[x][y] = target[x][k] + target[k][y];
             __syncthreads();
         }
     } else if (stat == 2) {
-        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+        for (int k = 0; k < 16 && rb + k < n; k++) {
             if (a[x][k] + b[k][y] < target[x][y])
                 target[x][y] = a[x][k] + b[k][y];
             __syncthreads();
         }
     } else if (stat == 3) {
-        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+        for (int k = 0; k < 16 && rb + k < n; k++) {
             if (a[x][k] + target[k][y] < target[x][y])
                 target[x][y] = a[x][k] + target[k][y];
             __syncthreads();
         }
     } else {
-        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+        for (int k = 0; k < 16 && rb + k < n; k++) {
             if (target[x][k] + b[k][y] < target[x][y])
                 target[x][y] = target[x][k] + b[k][y];
             __syncthreads();
