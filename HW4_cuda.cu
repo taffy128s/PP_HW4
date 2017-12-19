@@ -54,8 +54,10 @@ done &= cal(B, r,  r +1,     r,             1,  round - r -1);
 */
 
 __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B, int Round, int block_start_x, int block_start_y, int block_width) {
-    int i = (block_start_x + blockIdx.x / block_width) * B + threadIdx.x / B;
-    int j = (block_start_y + blockIdx.x % block_width) * B + threadIdx.x % B;
+    int x = threadIdx.x / B;
+    int y = threadIdx.x % B;
+    int i = (block_start_x + blockIdx.x / block_width) * B + x;
+    int j = (block_start_y + blockIdx.x % block_width) * B + y;
     
     /*for (int k = Round * B; k < (Round + 1) * B && k < n; k++) {
         int *i_row = (int*)((char*)device_ptr + i * pitch);
@@ -65,14 +67,13 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
         }
         __syncthreads();
     }*/
-    int x = threadIdx.x / B;
-    int y = threadIdx.x % B;
+    
     __shared__ int target[16][33];
     __shared__ int a[16][33];
     __shared__ int b[16][33];
     target[x][y] = *((int*)((char*)device_ptr + i * pitch) + j);
-    a[x][y] = *((int*)((char*)device_ptr + i * pitch) + Round * B + y);
-    b[x][y] = *((int*)((char*)device_ptr + (Round * B + x) * pitch) + j);
+    a[x][y] =      *((int*)((char*)device_ptr + i * pitch) + Round * B + y);
+    b[x][y] =      *((int*)((char*)device_ptr + (Round * B + x) * pitch) + j);
     __syncthreads();
     if (i >= n || j >= n) return;
     
