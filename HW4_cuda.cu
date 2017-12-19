@@ -53,18 +53,56 @@ done &= cal(B, r,     0,     r,             1,             r);
 done &= cal(B, r,  r +1,     r,             1,  round - r -1);
 */
 
-__global__ void cal_kernel(int *device_ptr, int n, size_t pitch, int B, int Round, int block_start_x, int block_start_y, int block_width) {
+__global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B, int Round, int block_start_x, int block_start_y, int block_width) {
     int i = (block_start_x + blockIdx.x / block_width) * B + threadIdx.x / B;
     int j = (block_start_y + blockIdx.x % block_width) * B + threadIdx.x % B;
-    if (i >= n || j >= n) return;
-    for (int k = Round * B; k < (Round + 1) * B && k < n; k++) {
+    
+    /*for (int k = Round * B; k < (Round + 1) * B && k < n; k++) {
         int *i_row = (int*)((char*)device_ptr + i * pitch);
         int *k_row = (int*)((char*)device_ptr + k * pitch);
         if (i_row[k] + k_row[j] < i_row[j]) {
             i_row[j] = i_row[k] + k_row[j];
         }
         __syncthreads();
+    }*/
+    int x = threadIdx.x / B;
+    int y = threadIdx.x % B;
+    __shared__ int target[16][16];
+    __shared__ int a[16][16];
+    __shared__ int b[16][16];
+    target[x][y] = *((int*)((char*)device_ptr + i * pitch) + j);
+    a[x][y] = *((int*)((char*)device_ptr + i * pitch) + Round * B + y);
+    b[x][y] = *((int*)((char*)device_ptr + (Round * B + x) * pitch) + j);
+    __syncthreads();
+    if (i >= n || j >= n) return;
+    
+    if (stat == 1) {
+        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+            if (target[x][k] + target[k][y] < target[x][y])
+                target[x][y] = target[x][k] + target[k][y];
+            __syncthreads();
+        }
+    } else if (stat == 2) {
+        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+            if (a[x][k] + b[k][y] < target[x][y])
+                target[x][y] = a[x][k] + b[k][y];
+            __syncthreads();
+        }
+    } else if (stat == 3) {
+        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+            if (a[x][k] + target[k][y] < target[x][y])
+                target[x][y] = a[x][k] + target[k][y];
+            __syncthreads();
+        }
+    } else {
+        for (int k = 0; k < 16 && Round * B + k < n; k++) {
+            if (target[x][k] + b[k][y] < target[x][y])
+                target[x][y] = target[x][k] + b[k][y];
+            __syncthreads();
+        }
     }
+    
+    *((int*)((char*)device_ptr + i * pitch) + j) = target[x][y];
 }
 
 bool cal(int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
@@ -136,17 +174,17 @@ void block_FW(int B) {
         
         int temp = (round - r - 1);
         
-        cal_kernel<<<                  1, num_thread>>>(device_ptr, n, pitch, B, r,     r,     r,             1);
+        cal_kernel<<<                  1, num_thread>>>(1, device_ptr, n, pitch, B, r,     r,     r,             1);
         
-        cal_kernel<<<                  r, num_thread>>>(device_ptr, n, pitch, B, r,     r,     0,             r);
-        cal_kernel<<<      round - r - 1, num_thread>>>(device_ptr, n, pitch, B, r,     r, r + 1, round - r - 1);
-        cal_kernel<<<                  r, num_thread>>>(device_ptr, n, pitch, B, r,     0,     r,             1);
-        cal_kernel<<<      round - r - 1, num_thread>>>(device_ptr, n, pitch, B, r, r + 1,     r,             1);
+        cal_kernel<<<                  r, num_thread>>>(3, device_ptr, n, pitch, B, r,     r,     0,             r);
+        cal_kernel<<<      round - r - 1, num_thread>>>(3, device_ptr, n, pitch, B, r,     r, r + 1, round - r - 1);
+        cal_kernel<<<                  r, num_thread>>>(4, device_ptr, n, pitch, B, r,     0,     r,             1);
+        cal_kernel<<<      round - r - 1, num_thread>>>(4, device_ptr, n, pitch, B, r, r + 1,     r,             1);
         
-        cal_kernel<<<              r * r, num_thread>>>(device_ptr, n, pitch, B, r,     0,     0,             r);
-        cal_kernel<<<r * (round - r - 1), num_thread>>>(device_ptr, n, pitch, B, r,     0, r + 1, round - r - 1);
-        cal_kernel<<<r * (round - r - 1), num_thread>>>(device_ptr, n, pitch, B, r, r + 1,     0,             r);
-        cal_kernel<<<        temp * temp, num_thread>>>(device_ptr, n, pitch, B, r, r + 1, r + 1, round - r - 1);
+        cal_kernel<<<              r * r, num_thread>>>(2, device_ptr, n, pitch, B, r,     0,     0,             r);
+        cal_kernel<<<r * (round - r - 1), num_thread>>>(2, device_ptr, n, pitch, B, r,     0, r + 1, round - r - 1);
+        cal_kernel<<<r * (round - r - 1), num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1,     0,             r);
+        cal_kernel<<<        temp * temp, num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1, r + 1, round - r - 1);
 	}
     cudaMemcpy2D(Dist, V * sizeof(int), device_ptr, pitch, n * sizeof(int), n, cudaMemcpyDeviceToHost);
 }
