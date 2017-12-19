@@ -1,43 +1,30 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda.h>
+#include <string.h>
 #include <unistd.h>
+#include <cuda.h>
 
 const int INF = 1000000000;
 const int V = 20010;
-void input(char *inFileName);
-void output(char *outFileName);
+const int num_thread = 256;
 
-void block_FW(int B);
-int ceil(int a, int b);
-bool cal(int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height);
+int n, m, Dist[V][V];
+int *device_ptr;
+size_t pitch;
 
-int n, m;	// Number of vertices, edges
-static int Dist[V][V];
-
-int main(int argc, char* argv[])
-{
-	input(argv[1]);
-	int B = atoi(argv[3]);
-	block_FW(B);
-
-	output(argv[2]);
-
-	return 0;
+inline int ceil(int a, int b) {
+	return (a + b - 1) / b;
 }
 
-void input(char *inFileName)
-{
+void input(char *inFileName) {
 	FILE *infile = fopen(inFileName, "r");
 	fscanf(infile, "%d %d", &n, &m);
-
 	for (int i = 0; i < n; ++i) {
 		for (int j = 0; j < n; ++j) {
 			if (i == j)	Dist[i][j] = 0;
 			else		Dist[i][j] = INF;
 		}
 	}
-
 	while (--m >= 0) {
 		int a, b, v;
 		fscanf(infile, "%d %d %d", &a, &b, &v);
@@ -46,13 +33,10 @@ void input(char *inFileName)
     fclose(infile);
 }
 
-void output(char *outFileName)
-{
+void output(char *outFileName) {
 	FILE *outfile = fopen(outFileName, "w");
 	for (int i = 0; i < n; ++i) {
 		for (int j = 0; j < n; ++j) {
-			// if (Dist[i][j] >= INF)	fprintf(outfile, "INF ");
-			// else					fprintf(outfile, "%d ", Dist[i][j]);
             if (Dist[i][j] >= INF)
                 Dist[i][j] = INF;
 		}
@@ -61,41 +45,29 @@ void output(char *outFileName)
     fclose(outfile);
 }
 
-int ceil(int a, int b)
-{
-	return (a + b -1)/b;
-}
-
-void block_FW(int B)
-{
-	int round = ceil(n, B);
-	for (int r = 0; r < round; ++r) {
-        printf("%d %d\n", r, round);
-		/* Phase 1*/
-        int done = true;
-		done &= cal(B,	r,	r,	r,	1,	1);
-
-		/* Phase 2*/
-		done &= cal(B, r,     r,     0,             r,             1);
-		done &= cal(B, r,     r,  r +1,  round - r -1,             1);
-		done &= cal(B, r,     0,     r,             1,             r);
-		done &= cal(B, r,  r +1,     r,             1,  round - r -1);
-
-		/* Phase 3*/
-		done &= cal(B, r,     0,     0,            r,             r);
-		done &= cal(B, r,     0,  r +1,  round -r -1,             r);
-		done &= cal(B, r,  r +1,     0,            r,  round - r -1);
-		done &= cal(B, r,  r +1,  r +1,  round -r -1,  round - r -1);
+//done &= cal(B,	r,	r,	r,	1,	1);
 /*
-        if (done)
-            break;
+done &= cal(B, r,     r,     0,             r,             1);
+done &= cal(B, r,     r,  r +1,  round - r -1,             1);
+done &= cal(B, r,     0,     r,             1,             r);
+done &= cal(B, r,  r +1,     r,             1,  round - r -1);
 */
-	}
 
+__global__ void cal_kernel(int *device_ptr, int n, size_t pitch, int B, int Round, int block_start_x, int block_start_y, int block_width) {
+    int i = (block_start_x + blockIdx.x / block_width) * B + threadIdx.x / B;
+    int j = (block_start_y + blockIdx.x % block_width) * B + threadIdx.x % B;
+    if (i >= n || j >= n) return;
+    for (int k = Round * B; k < (Round + 1) * B && k < n; k++) {
+        int *i_row = (int*)((char*)device_ptr + i * pitch);
+        int *k_row = (int*)((char*)device_ptr + k * pitch);
+        if (i_row[k] + k_row[j] < i_row[j]) {
+            i_row[j] = i_row[k] + k_row[j];
+        }
+        __syncthreads();
+    }
 }
 
-bool cal(int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height)
-{
+bool cal(int B, int Round, int block_start_x, int block_start_y, int block_width, int block_height) {
     bool done = true;
 	int block_end_x = block_start_x + block_height;
 	int block_end_y = block_start_y + block_width;
@@ -129,4 +101,60 @@ bool cal(int B, int Round, int block_start_x, int block_start_y, int block_width
     return done;
 }
 
+void show(int32_t input[V][V]) {
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            printf("%d ", input[i][j]);
+        }
+        puts("");
+    }
+}
 
+void block_FW(int B) {
+    cudaMallocPitch(&device_ptr, &pitch, n * sizeof(int), n);
+    cudaMemcpy2D(device_ptr, pitch, Dist, V * sizeof(int), n * sizeof(int), n, cudaMemcpyHostToDevice);
+    //show(Dist);
+    //memset(Dist, 0, sizeof(Dist));
+    //cudaMemcpy2D(Dist, V * sizeof(int), device_ptr, pitch, n * sizeof(int), n, cudaMemcpyDeviceToHost);
+    //show(Dist);
+    
+	int round = ceil(n, B);
+	for (int r = 0; r < round; ++r) {
+        //printf("%d %d\n", r, round);
+        /*
+		cal(B,	r,	r,	r,	1,	1);
+
+		cal(B, r,     r,     0,             r,             1);
+		cal(B, r,     r,  r +1,  round - r -1,             1);
+		cal(B, r,     0,     r,             1,             r);
+		cal(B, r,  r +1,     r,             1,  round - r -1);
+
+		cal(B, r,     0,     0,            r,             r);
+		cal(B, r,     0,  r +1,  round -r -1,             r);
+		cal(B, r,  r +1,     0,            r,  round - r -1);
+		cal(B, r,  r +1,  r +1,  round -r -1,  round - r -1);*/
+        
+        int temp = (round - r - 1);
+        
+        cal_kernel<<<                  1, num_thread>>>(device_ptr, n, pitch, B, r,     r,     r,             1);
+        
+        cal_kernel<<<                  r, num_thread>>>(device_ptr, n, pitch, B, r,     r,     0,             r);
+        cal_kernel<<<      round - r - 1, num_thread>>>(device_ptr, n, pitch, B, r,     r, r + 1, round - r - 1);
+        cal_kernel<<<                  r, num_thread>>>(device_ptr, n, pitch, B, r,     0,     r,             1);
+        cal_kernel<<<      round - r - 1, num_thread>>>(device_ptr, n, pitch, B, r, r + 1,     r,             1);
+        
+        cal_kernel<<<              r * r, num_thread>>>(device_ptr, n, pitch, B, r,     0,     0,             r);
+        cal_kernel<<<r * (round - r - 1), num_thread>>>(device_ptr, n, pitch, B, r,     0, r + 1, round - r - 1);
+        cal_kernel<<<r * (round - r - 1), num_thread>>>(device_ptr, n, pitch, B, r, r + 1,     0,             r);
+        cal_kernel<<<        temp * temp, num_thread>>>(device_ptr, n, pitch, B, r, r + 1, r + 1, round - r - 1);
+	}
+    cudaMemcpy2D(Dist, V * sizeof(int), device_ptr, pitch, n * sizeof(int), n, cudaMemcpyDeviceToHost);
+}
+
+int main(int argc, char* argv[]) {
+	input(argv[1]);
+	int B = atoi(argv[3]);
+	block_FW(B);
+	output(argv[2]);
+	return 0;
+}
