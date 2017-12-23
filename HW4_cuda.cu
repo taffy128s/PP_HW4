@@ -58,7 +58,7 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
     int y = threadIdx.x % B;
     int i = (block_start_x + blockIdx.x / block_width) * B + x;
     int j = (block_start_y + blockIdx.x % block_width) * B + y;
-    
+
     /*for (int k = Round * B; k < (Round + 1) * B && k < n; k++) {
         int *i_row = (int*)((char*)device_ptr + i * pitch);
         int *k_row = (int*)((char*)device_ptr + k * pitch);
@@ -67,7 +67,7 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
         }
         __syncthreads();
     }*/
-    
+
     __shared__ int target[16][33];
     __shared__ int a[16][33];
     __shared__ int b[16][33];
@@ -76,7 +76,7 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
     b[x][y] =      *((int*)((char*)device_ptr + (Round * B + x) * pitch) + j);
     __syncthreads();
     if (i >= n || j >= n) return;
-    
+
     int rb = Round * B;
     if (stat == 1) {
         for (int k = 0; k < 16 && rb + k < n; k++) {
@@ -103,7 +103,7 @@ __global__ void cal_kernel(int stat, int *device_ptr, int n, size_t pitch, int B
             __syncthreads();
         }
     }
-    
+
     *((int*)((char*)device_ptr + i * pitch) + j) = target[x][y];
 }
 
@@ -157,7 +157,7 @@ void block_FW(int B) {
     //memset(Dist, 0, sizeof(Dist));
     //cudaMemcpy2D(Dist, V * sizeof(int), device_ptr, pitch, n * sizeof(int), n, cudaMemcpyDeviceToHost);
     //show(Dist);
-    
+
 	int round = ceil(n, B);
 	for (int r = 0; r < round; ++r) {
         //printf("%d %d\n", r, round);
@@ -173,20 +173,32 @@ void block_FW(int B) {
 		cal(B, r,     0,  r +1,  round -r -1,             r);
 		cal(B, r,  r +1,     0,            r,  round - r -1);
 		cal(B, r,  r +1,  r +1,  round -r -1,  round - r -1);*/
-        
+
+
+
         int temp = (round - r - 1);
-        
+
         cal_kernel<<<                  1, num_thread>>>(1, device_ptr, n, pitch, B, r,     r,     r,             1);
-        
+
+        //if (r < 1) {
+
+
         cal_kernel<<<                  r, num_thread>>>(3, device_ptr, n, pitch, B, r,     r,     0,             r);
-        cal_kernel<<<      round - r - 1, num_thread>>>(3, device_ptr, n, pitch, B, r,     r, r + 1, round - r - 1);
+        cal_kernel<<<               temp, num_thread>>>(3, device_ptr, n, pitch, B, r,     r, r + 1,          temp);
+
+
+
         cal_kernel<<<                  r, num_thread>>>(4, device_ptr, n, pitch, B, r,     0,     r,             1);
-        cal_kernel<<<      round - r - 1, num_thread>>>(4, device_ptr, n, pitch, B, r, r + 1,     r,             1);
-        
+        cal_kernel<<<               temp, num_thread>>>(4, device_ptr, n, pitch, B, r, r + 1,     r,             1);
+
+
         cal_kernel<<<              r * r, num_thread>>>(2, device_ptr, n, pitch, B, r,     0,     0,             r);
-        cal_kernel<<<r * (round - r - 1), num_thread>>>(2, device_ptr, n, pitch, B, r,     0, r + 1, round - r - 1);
-        cal_kernel<<<r * (round - r - 1), num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1,     0,             r);
-        cal_kernel<<<        temp * temp, num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1, r + 1, round - r - 1);
+        cal_kernel<<<           r * temp, num_thread>>>(2, device_ptr, n, pitch, B, r,     0, r + 1,          temp);
+        cal_kernel<<<           r * temp, num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1,     0,             r);
+        cal_kernel<<<        temp * temp, num_thread>>>(2, device_ptr, n, pitch, B, r, r + 1, r + 1,          temp);
+
+        //}
+
 	}
     cudaMemcpy2D(Dist, V * sizeof(int), device_ptr, pitch, n * sizeof(int), n, cudaMemcpyDeviceToHost);
 }
