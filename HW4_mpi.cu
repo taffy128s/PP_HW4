@@ -9,6 +9,8 @@
 const int INF = 1000000000;
 const int V = 20010;
 const int num_thread = 256;
+clock_t begin, end;
+double comm_time = 0;
 
 int n, m, Dist[V][V];
 int *device_ptr;
@@ -171,9 +173,12 @@ void mySend(int dst, int B, int bPosX, int bPosY, int width, int height) {
     if (x_end > n) x_end = n;
     if (y_end > n) y_end = n;
 
+    begin = clock();
     for (int i = y_start; i < y_end; i++) {
         MPI_Send(&Dist[i][x_start], x_end - x_start, MPI_INT, dst, 0, MPI_COMM_WORLD);
     }
+    end = clock();
+    comm_time += (double) (end - begin) / CLOCKS_PER_SEC;
 }
 
 void myRecv(int src, int B, int bPosX, int bPosY, int width, int height) {
@@ -185,9 +190,12 @@ void myRecv(int src, int B, int bPosX, int bPosY, int width, int height) {
     if (x_end > n) x_end = n;
     if (y_end > n) y_end = n;
 
+    begin = clock();
     for (int i = y_start; i < y_end; i++) {
         MPI_Recv(&Dist[i][x_start], x_end - x_start, MPI_INT, src, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
+    end = clock();
+    comm_time += (double) (end - begin) / CLOCKS_PER_SEC;
 }
 
 void block_FW(int B) {
@@ -271,5 +279,6 @@ int main(int argc, char** argv) {
 	int B = atoi(argv[3]);
 	block_FW(B);
 	output(argv[2]);
+    printf("comm time: %f\n", comm_time);
 	return 0;
 }

@@ -7,6 +7,8 @@
 const int INF = 1000000000;
 const int V = 20010;
 const int num_thread = 256;
+clock_t begin, end;
+double IO_time = 0;
 
 int n, m, Dist[V][V];
 int *device_ptr;
@@ -17,6 +19,7 @@ inline int ceil(int a, int b) {
 }
 
 void input(char *inFileName) {
+    begin = clock();
 	FILE *infile = fopen(inFileName, "r");
 	fscanf(infile, "%d %d", &n, &m);
 	for (int i = 0; i < n; ++i) {
@@ -31,9 +34,12 @@ void input(char *inFileName) {
 		Dist[a][b] = v;
 	}
     fclose(infile);
+    end = clock();
+    IO_time += (double) (end - begin) / CLOCKS_PER_SEC;
 }
 
 void output(char *outFileName) {
+    begin = clock();
 	FILE *outfile = fopen(outFileName, "w");
 	for (int i = 0; i < n; ++i) {
 		for (int j = 0; j < n; ++j) {
@@ -43,6 +49,8 @@ void output(char *outFileName) {
 		fwrite(Dist[i], sizeof(int), n, outfile);
 	}
     fclose(outfile);
+    end = clock();
+    IO_time += (double) (end - begin) / CLOCKS_PER_SEC;
 }
 
 //done &= cal(B,	r,	r,	r,	1,	1);
@@ -208,5 +216,6 @@ int main(int argc, char* argv[]) {
 	int B = atoi(argv[3]);
 	block_FW(B);
 	output(argv[2]);
+    printf("IO time: %f\n", IO_time);
 	return 0;
 }
